@@ -26,10 +26,10 @@ use core::str;
 ///     Ok(())
 /// }
 /// ```
-pub fn from_str<T: Deserialize<E>, E: VisitorError>(j: &str) -> Result<T, E> {
+pub fn from_str<T: Deserialize>(j: &str) -> Result<T, T::Error> {
     let mut out = None;
     from_str_impl(j, T::begin(&mut out))?;
-    out.ok_or(E::unexpected())
+    out.ok_or(T::Error::unexpected())
 }
 
 struct Deserializer<'a, 'b, E> {

@@ -58,8 +58,9 @@ impl Serialize for Value {
     }
 }
 
-impl<E: VisitorError> Deserialize<E> for Value {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+impl Deserialize for Value {
+    type Error = crate::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
         impl<E: VisitorError> Visitor<E> for Place<Value> {
             fn null(&mut self) -> Result<(), E> {
                 self.out = Some(Value::Null);

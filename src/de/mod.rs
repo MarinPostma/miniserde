@@ -190,7 +190,8 @@ use alloc::boxed::Box;
 /// Trait for data structures that can be deserialized from a JSON string.
 ///
 /// [Refer to the module documentation for examples.][crate::de]
-pub trait Deserialize<E = Error>: Sized {
+pub trait Deserialize: Sized {
+    type Error: VisitorError;
     /// The only correct implementation of this method is:
     ///
     /// ```rust
@@ -207,7 +208,7 @@ pub trait Deserialize<E = Error>: Sized {
     /// }
     /// # }
     /// ```
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E>;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error>;
 
     // Not public API. This method is only intended for Option<T>, should not
     // need to be implemented outside of this crate.

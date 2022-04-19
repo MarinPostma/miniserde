@@ -16,8 +16,9 @@ use std::hash::{BuildHasher, Hash};
 
 use super::VisitorError;
 
-impl<E: VisitorError> Deserialize<E> for () {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+impl Deserialize for () {
+    type Error = crate::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
         impl<E: VisitorError> Visitor<E> for Place<()> {
             fn null(&mut self) -> Result<(), E> {
                 self.out = Some(());
@@ -28,8 +29,9 @@ impl<E: VisitorError> Deserialize<E> for () {
     }
 }
 
-impl<E: VisitorError> Deserialize<E> for bool {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+impl Deserialize for bool {
+    type Error = crate::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
         impl<E: VisitorError> Visitor<E> for Place<bool> {
             fn boolean(&mut self, b: bool) -> Result<(), E> {
                 self.out = Some(b);
@@ -40,8 +42,9 @@ impl<E: VisitorError> Deserialize<E> for bool {
     }
 }
 
-impl<E: VisitorError> Deserialize<E> for String {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+impl Deserialize for String {
+    type Error = crate::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
         impl<E: VisitorError> Visitor<E> for Place<String> {
             fn string(&mut self, s: &str) -> Result<(), E> {
                 self.out = Some(s.to_owned());
@@ -54,11 +57,9 @@ impl<E: VisitorError> Deserialize<E> for String {
 
 macro_rules! signed {
     ($ty:ident) => {
-        impl<E> Deserialize<E> for $ty
-        where
-            E: VisitorError,
-        {
-            fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+        impl Deserialize for $ty {
+            type Error = crate::Error;
+            fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
                 impl<E: VisitorError> Visitor<E> for Place<$ty> {
                     fn negative(&mut self, n: i64) -> Result<(), E> {
                         if n >= $ty::min_value() as i64 {
@@ -91,11 +92,9 @@ signed!(isize);
 
 macro_rules! unsigned {
     ($ty:ident) => {
-        impl<E> Deserialize<E> for $ty
-        where
-            E: VisitorError,
-        {
-            fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+        impl Deserialize for $ty {
+            type Error = crate::Error;
+            fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
                 impl<E: VisitorError> Visitor<E> for Place<$ty> {
                     fn nonnegative(&mut self, n: u64) -> Result<(), E> {
                         if n <= $ty::max_value() as u64 {
@@ -119,8 +118,9 @@ unsigned!(usize);
 
 macro_rules! float {
     ($ty:ident) => {
-        impl<E: VisitorError> Deserialize<E> for $ty {
-            fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+        impl Deserialize for $ty {
+            type Error = crate::Error;
+            fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
                 impl<E: VisitorError> Visitor<E> for Place<$ty> {
                     fn negative(&mut self, n: i64) -> Result<(), E> {
                         self.out = Some(n as $ty);
@@ -145,9 +145,14 @@ macro_rules! float {
 float!(f32);
 float!(f64);
 
-impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Box<T> {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
-        impl<E: VisitorError, T: Deserialize<E>> Visitor<E> for Place<Box<T>> {
+impl<T: Deserialize> Deserialize for Box<T> {
+    type Error = T::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
+        impl<E, T> Visitor<E> for Place<Box<T>>
+        where
+            E: VisitorError,
+            T: Deserialize<Error = E>,
+        {
             fn null(&mut self) -> Result<(), E> {
                 let mut out = None;
                 Deserialize::begin(&mut out).null()?;
@@ -224,7 +229,7 @@ impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Box<T> {
             }
         }
 
-        impl<'a, E: VisitorError, T: Deserialize<E>> Seq<E> for BoxSeq<'a, E, T> {
+        impl<'a, E: VisitorError, T: Deserialize> Seq<E> for BoxSeq<'a, E, T> {
             fn element(&mut self) -> Result<&mut dyn Visitor<E>, E> {
                 self.seq.element()
             }
@@ -250,7 +255,7 @@ impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Box<T> {
             }
         }
 
-        impl<'a, E: VisitorError, T: Deserialize<E>> Map<E> for BoxMap<'a, E, T> {
+        impl<'a, E: VisitorError, T: Deserialize> Map<E> for BoxMap<'a, E, T> {
             fn key(&mut self, k: &str) -> Result<&mut dyn Visitor<E>, E> {
                 self.map.key(k)
             }
@@ -267,13 +272,18 @@ impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Box<T> {
     }
 }
 
-impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Option<T> {
+impl<T: Deserialize> Deserialize for Option<T> {
+    type Error = T::Error;
     #[inline]
     fn default() -> Option<Self> {
         Some(None)
     }
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
-        impl<E: VisitorError, T: Deserialize<E>> Visitor<E> for Place<Option<T>> {
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
+        impl<E, T> Visitor<E> for Place<Option<T>>
+        where
+            E: VisitorError,
+            T: Deserialize<Error = E>,
+        {
             fn null(&mut self) -> Result<(), E> {
                 self.out = Some(None);
                 Ok(())
@@ -319,14 +329,20 @@ impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Option<T> {
     }
 }
 
-impl<E, A, B> Deserialize<E> for (A, B)
+impl<E, A, B> Deserialize for (A, B)
 where
     E: VisitorError,
-    A: Deserialize<E>,
-    B: Deserialize<E>,
+    A: Deserialize<Error = E>,
+    B: Deserialize<Error = E>,
 {
+    type Error = E;
     fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
-        impl<E: VisitorError, A: Deserialize<E>, B: Deserialize<E>> Visitor<E> for Place<(A, B)> {
+        impl<E, A, B> Visitor<E> for Place<(A, B)>
+        where
+            E: VisitorError,
+            A: Deserialize<Error = E>,
+            B: Deserialize<Error = E>,
+        {
             fn seq(&mut self) -> Result<Box<dyn Seq<E> + '_>, E> {
                 Ok(Box::new(TupleBuilder {
                     out: &mut self.out,
@@ -343,8 +359,8 @@ where
         impl<'a, E, A, B> Seq<E> for TupleBuilder<'a, A, B>
         where
             E: VisitorError,
-            A: Deserialize<E>,
-            B: Deserialize<E>,
+            A: Deserialize<Error = E>,
+            B: Deserialize<Error = E>,
         {
             fn element(&mut self) -> Result<&mut dyn Visitor<E>, E> {
                 if self.tuple.0.is_none() {
@@ -370,9 +386,14 @@ where
     }
 }
 
-impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Vec<T> {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
-        impl<E: VisitorError, T: Deserialize<E>> Visitor<E> for Place<Vec<T>> {
+impl<T: Deserialize> Deserialize for Vec<T> {
+    type Error = T::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
+        impl<E, T> Visitor<E> for Place<Vec<T>>
+        where
+            E: VisitorError,
+            T: Deserialize<Error = E>,
+        {
             fn seq(&mut self) -> Result<Box<dyn Seq<E> + '_>, E> {
                 Ok(Box::new(VecBuilder {
                     out: &mut self.out,
@@ -396,7 +417,11 @@ impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Vec<T> {
             }
         }
 
-        impl<'a, E, T: Deserialize<E>> Seq<E> for VecBuilder<'a, T> {
+        impl<'a, E, T> Seq<E> for VecBuilder<'a, T>
+        where
+            T: Deserialize<Error = E>,
+            E: VisitorError,
+        {
             fn element(&mut self) -> Result<&mut dyn Visitor<E>, E> {
                 self.shift();
                 Ok(Deserialize::begin(&mut self.element))
@@ -414,18 +439,19 @@ impl<E: VisitorError, T: Deserialize<E>> Deserialize<E> for Vec<T> {
 }
 
 #[cfg(feature = "std")]
-impl<E, K, V, H> Deserialize<E> for HashMap<K, V, H>
+impl<K, V, H> Deserialize for HashMap<K, V, H>
 where
     K: FromStr + Hash + Eq,
-    V: Deserialize<E>,
+    V: Deserialize,
     H: BuildHasher + Default,
-    E: VisitorError,
 {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+    type Error = V::Error;
+
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
         impl<E, K, V, H> Visitor<E> for Place<HashMap<K, V, H>>
         where
             K: FromStr + Hash + Eq,
-            V: Deserialize<E>,
+            V: Deserialize<Error = E>,
             H: BuildHasher + Default,
             E: VisitorError,
         {
@@ -457,7 +483,7 @@ where
         impl<'a, E, K, V, H> Map<E> for MapBuilder<'a, K, V, H>
         where
             K: FromStr + Hash + Eq,
-            V: Deserialize<E>,
+            V: Deserialize<Error = E>,
             H: BuildHasher + Default,
             E: VisitorError,
         {
@@ -482,12 +508,13 @@ where
     }
 }
 
-impl<E: VisitorError, K: FromStr + Ord, V: Deserialize<E>> Deserialize<E> for BTreeMap<K, V> {
-    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<E> {
+impl<K: FromStr + Ord, V: Deserialize> Deserialize for BTreeMap<K, V> {
+    type Error = V::Error;
+    fn begin(out: &mut Option<Self>) -> &mut dyn Visitor<Self::Error> {
         impl<E, K, V> Visitor<E> for Place<BTreeMap<K, V>>
         where
             K: FromStr + Ord,
-            V: Deserialize<E>,
+            V: Deserialize<Error = E>,
             E: VisitorError,
         {
             fn map(&mut self) -> Result<Box<dyn Map<E> + '_>, E> {
@@ -519,7 +546,7 @@ impl<E: VisitorError, K: FromStr + Ord, V: Deserialize<E>> Deserialize<E> for BT
         where
             E: VisitorError,
             K: FromStr + Ord,
-            V: Deserialize<E>,
+            V: Deserialize<Error = E>,
         {
             fn key(&mut self, k: &str) -> Result<&mut dyn Visitor<E>, E> {
                 self.shift();
