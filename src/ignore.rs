@@ -1,11 +1,14 @@
-use crate::de::{Map, Seq, Visitor};
+use std::convert::Infallible;
+use std::marker::PhantomData;
+
+use crate::de::{Map, Seq, Visitor, VisitorError};
 use crate::error::Result;
 use alloc::boxed::Box;
 
-impl dyn Visitor {
-    pub fn ignore() -> &'static mut dyn Visitor {
-        static mut IGNORE: Ignore = Ignore;
-        unsafe { &mut IGNORE }
+impl<E> dyn Visitor<Error = E> {
+    pub fn ignore() -> &'static mut Ignore<E> {
+        static mut IGNORE: Ignore<Infallible> = Ignore(PhantomData);
+        unsafe { std::mem::transmute(&mut IGNORE) }
         //
         // The following may be needed if stacked borrows gets more selective
         // about the above in the future:
@@ -19,45 +22,48 @@ impl dyn Visitor {
     }
 }
 
-pub(crate) struct Ignore;
+pub(crate) struct Ignore<E>(PhantomData<E>);
 
-impl Visitor for Ignore {
-    fn null(&mut self) -> Result<()> {
-        Ok(())
-    }
-
-    fn boolean(&mut self, _b: bool) -> Result<()> {
-        Ok(())
-    }
-
-    fn string(&mut self, _s: &str) -> Result<()> {
-        Ok(())
-    }
-
-    fn negative(&mut self, _n: i64) -> Result<()> {
-        Ok(())
-    }
-
-    fn nonnegative(&mut self, _n: u64) -> Result<()> {
-        Ok(())
-    }
-
-    fn float(&mut self, _n: f64) -> Result<()> {
-        Ok(())
-    }
-
-    fn seq(&mut self) -> Result<Box<dyn Seq + '_>> {
-        Ok(Box::new(Ignore))
-    }
-
-    fn map(&mut self) -> Result<Box<dyn Map + '_>> {
-        Ok(Box::new(Ignore))
+impl<E> Ignore<E> {
+    pub fn new() -> Self {
+        Self(PhantomData)
     }
 }
 
-impl Seq for Ignore {
-    fn element(&mut self) -> Result<&mut dyn Visitor> {
-        Ok(<dyn Visitor>::ignore())
+impl VisitorError for Infallible {
+    fn unexpected() -> Self {
+        unreachable!()
+    }
+}
+
+impl<E: VisitorError + 'static> Visitor for Ignore<E> {
+    type Error = E;
+    fn raise(&mut self, _err: Self::Error) {}
+
+    fn null(&mut self) {}
+
+    fn boolean(&mut self, _b: bool) {}
+
+    fn string(&mut self, _s: &str) {}
+
+    fn negative(&mut self, _n: i64) {}
+
+    fn nonnegative(&mut self, _n: u64) {}
+
+    fn float(&mut self, _n: f64) {}
+
+    fn seq(&mut self) -> Option<Box<dyn Seq<Self::Error> + '_>> {
+        Some(Box::new(Ignore::new()))
+    }
+
+    fn map(&mut self) -> Option<Box<dyn Map<Self::Error> + '_>> {
+        Some(Box::new(Ignore::new()))
+    }
+}
+
+impl<E: VisitorError + 'static> Seq<E> for Ignore<E> {
+    fn element(&mut self) -> Result<&mut dyn Visitor<Error = E>> {
+        Ok(<dyn Visitor<Error = E>>::ignore())
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -65,9 +71,9 @@ impl Seq for Ignore {
     }
 }
 
-impl Map for Ignore {
-    fn key(&mut self, _k: &str) -> Result<&mut dyn Visitor> {
-        Ok(<dyn Visitor>::ignore())
+impl<E: VisitorError + 'static> Map<E> for Ignore<E> {
+    fn key(&mut self, _k: &str) -> Result<&mut dyn Visitor<Error = E>> {
+        Ok(<dyn Visitor<Error = E>>::ignore())
     }
 
     fn finish(&mut self) -> Result<()> {
